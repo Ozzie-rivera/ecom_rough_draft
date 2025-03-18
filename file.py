@@ -3,7 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from flask_marshmallow import Marshmallow
 from marshmallow import ValidationError, fields
-from datetime import date, time
+from datetime import datetime
 from typing import List
 from sqlalchemy import select, delete 
 
@@ -20,7 +20,7 @@ ma = Marshmallow(app)
 
 
 class Customer(Base):
-    __tablename__ = 'Customers'
+    __tablename__ = 'Customer'
     
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(db.String(100), nullable=False)
@@ -40,9 +40,9 @@ class Orders(Base):
     
     id: Mapped[int] = mapped_column(primary_key=True)
     order_date: Mapped[date] = mapped_column(db.Date, nullable=False)
-    customers_id: Mapped[int] = mapped_column(db.ForeignKey('Customers.id'))
+    customers_id: Mapped[int] = mapped_column(db.ForeignKey('Customer.id'))
     # Creates a one- to many relationship to the customer table.
-    customer: Mapped['Customer'] = db.relationship('Customers', back_populates='orders')
+    customer: Mapped['Customer'] = db.relationship('Customer', back_populates='orders')
     products: Mapped[list['Products']] = db.relationship('Products', secondary=order_products, back_populates="orders")
     
     
@@ -54,7 +54,6 @@ class Products(Base):
     product_name: Mapped[str] = mapped_column(db.String(200), nullable=False)
     price: Mapped[float] = mapped_column(db.Float, nullable=False)
     orders: Mapped[list['Orders']] = db.relationship('Orders', secondary=order_products, back_populates="products")
-    
     
 #=========================Schema====================================
 
@@ -98,7 +97,7 @@ def get_customers():
     return customers_schema.jsonify(customers)
 
 #=====GET /users/<id>: Retrieve a user by ID=======
-@app.route('/customers/ <int:id>', methods=['GET'])
+@app.route('/customers/<int:id>', methods=['GET'])
 def get_user(id):
     user = db.session.get(Customer, id)
     return customers_schema.jsonify(user), 200
@@ -111,7 +110,7 @@ def add_customer():
     try:
         customer_data = customer_schema.load(request.json)
     except ValidationError as e:
-        return jsonify(e.message), 400
+        return jsonify(e.messages), 400
     
     new_customer = Customer(name=customer_data['name'], email=customer_data['email'], address=customer_data['address'])
     db.session.add(new_customer)
@@ -138,13 +137,13 @@ def update_customers(id):
     customers.email = customers_data['email']
     
     db.session.commit()
-    return customers_schema.jsonify(Customer), 200
+    return customers_schema.jsonify(customer), 200 
     
     
     
 #======DELETE /users/<id>: Delete a user by ID========
 @app.route('/customers/<int:id>', methods=['DELETE'])
-def delere_customers(id):
+def delete_customers(id):
     customers = db.session.get(Customer, id)
     
     if not customers:
@@ -161,13 +160,6 @@ def delere_customers(id):
 def get_products():
     products = Products.query.all()
     return jsonify(products_schema.dump(products))
-
-
-#=======GET /products/<id>: Retrieve a product by ID=======
-@app.route('/customers/ <int:id>', methods=['GET'])
-def get_user(id):
-    user = db.session.get(Customer, id)
-    return customers_schema.jsonify(user), 200
 
 
 #==========POST /products: Create a new product========
@@ -194,14 +186,14 @@ def update_products(id):
     except ValidationError as e:
         return jsonify(e.messages), 400
     
-    products.name = products_data['name']
-    products.email = products_data['email']
+    products.product_name = products_data['product_name']
+    products.price = products_data['price']
     
     db.session.commit()
     
 #=======DELETE /products/<id>: Delete a product by ID=======
 @app.route('/products/<int:id>', methods=['DELETE'])
-def delere_customers(id):
+def delete_product(id):
     products = db.session.get(Products, id)
     
     if not products:
@@ -216,7 +208,7 @@ def delere_customers(id):
 @app.route('/orders', methods=['POST'])
 def create_order():
     data = request.json
-    new_order = Orders(user_id=data['user_id'], order_date=datetime())
+    new_order = Orders(customers_id=data['user_id'], order_date=datetime.utcnow().date())
     db.session.add(new_order)
     db.session.commit()
     return jsonify(order_schema.dump(new_order)), 201
@@ -225,8 +217,8 @@ def create_order():
 #=======DELETE /orders/<order_id>/remove_product/<product_id>: Remove a product from an order=======
 @app.route('/orders/<int:order_id>/remove_product/<int:product_id>', methods=['DELETE'])
 def remove_product_from_order(order_id, product_id):
-    order = Orders.query(order_id)
-    product = Products.query(product_id)
+    order = Orders.query.filter_by(id=order_id).first()
+    product = Products.query.filter_by(id=product_id).first()
     if product not in order.products:
         return jsonify({'message': 'Product not in order'}), 400
     order.products.remove(product)
@@ -237,18 +229,21 @@ def remove_product_from_order(order_id, product_id):
 #=======GET /orders/user/<user_id>: Get all orders for a user========
 @app.route('/orders/user/<int:user_id>', methods=['GET'])
 def get_orders_for_user(user_id):
-    orders = Order.query.filter_by(user_id=user_id).all()
+    orders = Orders.query.filter_by(user_id=user_id).all()
     return jsonify(orders_schema.dump(orders))
 
 
 #=======GET /orders/<order_id>/products: Get all products for an order==========
 @app.route('/orders/<int:order_id>/products', methods=['GET'])
 def get_products_for_order(order_id):
-    order = Orders.query(order_id)
+    order = db.session.get(Orders, order_id)
     return jsonify(products_schema.dump(order.products))
 
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()  
     app.run(debug=True)
+
     
 
 
